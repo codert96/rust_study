@@ -52,7 +52,6 @@ async fn shutdown_signal() {
 pub async fn serve() -> Result {
     let now = tokio::time::Instant::now();
     dotenvy::dotenv()?;
-    let bean_factory_builder: BeanFactoryBuilder = Default::default();
     // 1. 设置文件输出：每天滚动创建一个日志文件
     let file_appender = tracing_appender::rolling::daily(
         env::var("LOG_PATH").unwrap_or_else(|_| "./logs".to_string()),
@@ -80,6 +79,7 @@ pub async fn serve() -> Result {
         // 层面 2：输出到文件（不带颜色，利于检索）
         .with(file_layer)
         .init();
+    let bean_factory_builder: BeanFactoryBuilder = Default::default();
     init(bean_factory_builder.clone()).await?;
     let bean_context = bean_factory_builder.build().await;
 
@@ -158,10 +158,9 @@ macro_rules! register_bean {
             $crate::InitHook(
                 |builder, (tx, mut rx)| {
                     Box::pin(async move {
-                        let mut __wait_for:Vec<std::any::TypeId> = Vec::<std::any::TypeId>::new();
-                        $(
-                            __wait_for.push(std::any::TypeId::of::<$ty>());
-                        )*
+                        let mut __wait_for:Vec<std::any::TypeId> = vec![
+                            $( std::any::TypeId::of::<$ty>(), )*
+                        ];
                         while !__wait_for.is_empty() {
                             let recv =
                                 tokio::time::timeout(std::time::Duration::from_secs(5), rx.recv()).await
