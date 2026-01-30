@@ -11,7 +11,7 @@ use crate::result::ToResponse;
 use crate::routing::router;
 use crate::state::BeanFactoryBuilder;
 use axum::body::to_bytes;
-use axum::{extract, http, middleware};
+use axum::{http, middleware};
 pub use inventory;
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::{Receiver, Sender};
@@ -19,6 +19,7 @@ use tracing::debug_span;
 pub use tracing::{debug, error, info, warn};
 pub use weblib_macro::*;
 
+pub mod extract;
 pub mod mime;
 pub mod result;
 pub mod routing;
@@ -86,7 +87,7 @@ pub async fn serve() -> Result {
     let router = router(&bean_context)
         .await
         .route_layer(middleware::from_fn(
-            async |request: extract::Request, next: middleware::Next| -> Response {
+            async |request: axum::extract::Request, next: middleware::Next| -> Response {
                 let method = request.method();
                 let uri = request.uri();
                 let span = debug_span!("request", %method, %uri);

@@ -3,14 +3,14 @@ use crate::user::Model;
 use axum::extract::{Multipart, Path, Query, Request};
 use axum::middleware::Next;
 use axum::{Json, Router, middleware};
-use calamine::{DataType, Reader};
+use calamine::Reader;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, NotSet, PaginatorTrait,
     QueryFilter, Set,
 };
 use serde::Deserialize;
-use std::io::Cursor;
 use std::ops::Deref;
+use weblib::extract::AsTempFile;
 use weblib::state::{Bean, BeanContext};
 use weblib::{debug, route, router_config};
 
@@ -64,23 +64,18 @@ pub async fn insert(
 #[route(POST, "/excel")]
 pub async fn excel(mut file: Multipart) -> Result<(), Box<dyn std::error::Error>> {
     // calamine::open_workbook_from_rs()
-    let field = file.next_field().await.ok().flatten().ok_or("缺少文件")?;
-    let file_name = field.file_name().ok_or("缺少文件名")?.to_string();
-    let bytes = field.bytes().await?;
-    let cursor = Cursor::new(bytes);
-    let mut workbook = calamine::open_workbook_auto_from_rs(cursor)?;
+    let mut field = file.next_field().await.ok().flatten().ok_or("缺少文件")?;
+    let _file_name = field.file_name().ok_or("缺少文件名")?.to_string();
+    let temp_file = field.as_temp_file().await?;
 
+    let mut workbook = calamine::open_workbook_auto(temp_file.path())?;
     for (name, rows) in &workbook.worksheets() {
         debug!("{}", name);
         for row in rows.rows() {
             for cell in row {
-                if cell.is_datetime() {
-                    let data = cell.get_datetime().unwrap();
-                    debug!("{:?} -> {:?} --> {}", cell, data, data.is_datetime());
-                }
+                debug!("{:?}", cell);
             }
         }
     }
-    debug!("{}", file_name);
     Ok(())
 }
