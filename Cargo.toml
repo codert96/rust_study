@@ -1,0 +1,38 @@
+[workspace]
+members = ["webapp", "weblib", "weblib_macro"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
+[workspace.dependencies]
+weblib = { path = "./weblib" }
+
+syn = { version = "2.0.111", features = ["full"] }
+quote = "1.0.42"
+proc-macro2 = "1.0.103"
+inventory = { version = "0.3.21" }
+
+futures = { version = "0.3.31" }
+tokio = { version = "1.48.0", features = ["full"] }
+tokio-util = { version = "0.7.18", features = ["full"] }
+axum = { version = "0.8.7", features = ["default", "tokio", "json", "tracing", "multipart"] }
+
+tracing = { version = "0.1.44", features = ["default"] }
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+tracing-appender = { version = "0.2.4" }
+serde = { version = "1.0.228", features = ["default"] }
+serde_json = { version = "1.0.149", features = ["default"] }
+
+mime_guess = "2.0.5"
+percent-encoding = "2.3.2"
+
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "runtime-tokio-native-tls", "macros"] }
+sqlx-mysql = { version = "0.8.6" }
+dotenvy = "0.15.7"
+
+indexmap = "2.13.0"
+redis = { version = "1.0.2", features = ["tokio-comp", "tokio-rustls-comp", "connection-manager", "aio", "cache-aio", "default"] }
+sea-orm = { version = "1.1.19", features = ["sqlx", "sqlx-mysql", "default", "runtime-tokio-rustls", "macros"] }
+calamine = { version = "0.32.0", features = ["default"] }

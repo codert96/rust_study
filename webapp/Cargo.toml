@@ -1,0 +1,18 @@
+[package]
+name = "webapp"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+weblib = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+axum = { workspace = true }
+sea-orm = { workspace = true }
+sqlx = { workspace = true }
+sqlx-mysql = { workspace = true }
+percent-encoding = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+redis = { workspace = true }
+calamine = { workspace = true }
