@@ -68,7 +68,7 @@ pub async fn excel(mut file: Multipart) -> Result<(), Box<dyn std::error::Error>
     let _file_name = field.file_name().ok_or("缺少文件名")?.to_string();
     let temp_file = field.as_temp_file().await?;
 
-    let mut workbook = calamine::open_workbook_auto(temp_file.path())?;
+    let mut workbook = calamine::open_workbook_auto(temp_file.deref())?;
     for (name, rows) in &workbook.worksheets() {
         debug!("{}", name);
         for row in rows.rows() {

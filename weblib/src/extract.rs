@@ -1,10 +1,51 @@
 use axum::extract::multipart::Field;
+use std::env;
 use std::io::{Error, ErrorKind};
-use tempfile::NamedTempFile;
+use std::ops::Deref;
+use std::path::Path;
+use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncWriteExt, BufWriter};
 
-pub type MultipartTempFile = NamedTempFile;
+struct Inner(Box<Path>);
+
+#[derive(Clone)]
+pub struct MultipartTempFile(Arc<Inner>);
+impl Drop for Inner {
+    fn drop(&mut self) {
+        let path = self.0.clone();
+        println!("dropping temp file {:?}", &path);
+        tokio::task::spawn(async move { tokio::fs::remove_file(path).await });
+    }
+}
+impl Deref for MultipartTempFile {
+    type Target = Path;
+    fn deref(&self) -> &Self::Target {
+        &*self.0.0
+    }
+}
+impl MultipartTempFile {
+    pub fn new() -> Self {
+        Self::with_suffix(".tmp")
+    }
+
+    pub fn with_suffix(suffix: &str) -> Self {
+        let mut tmp_file = env::temp_dir();
+        tmp_file.push(uuid::Uuid::new_v4().to_string());
+        tmp_file.add_extension(suffix);
+        Self(Arc::new(Inner(tmp_file.into_boxed_path())))
+    }
+
+    pub async fn open(&self) -> tokio::io::Result<File> {
+        File::create(self.deref()).await
+    }
+}
+impl Default for MultipartTempFile {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub trait AsTempFile {
     fn as_temp_file(&mut self) -> impl Future<Output = Result<MultipartTempFile, Error>>;
 }
@@ -14,10 +55,9 @@ impl AsTempFile for Field<'_> {
         let file_name = self
             .file_name()
             .ok_or_else(|| Error::new(ErrorKind::InvalidFilename, "缺少文件名！"))?;
-        let named_temp_file = NamedTempFile::with_suffix(file_name)?;
-        let temp_file = named_temp_file.reopen()?;
+        let multipart_temp_file = MultipartTempFile::with_suffix(file_name);
+        let mut temp_file = multipart_temp_file.open().await?;
         async move {
-            let mut temp_file = File::from_std(temp_file);
             let mut buf_writer = BufWriter::new(&mut temp_file);
             while let Some(chunk) = self
                 .chunk()
@@ -29,6 +69,6 @@ impl AsTempFile for Field<'_> {
             buf_writer.flush().await
         }
         .await?;
-        Ok(named_temp_file)
+        Ok(multipart_temp_file)
     }
 }
