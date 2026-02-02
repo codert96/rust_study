@@ -10,7 +10,7 @@ use sea_orm::{
 };
 use serde::Deserialize;
 use std::ops::Deref;
-use weblib::extract::AsTempFile;
+use weblib::extract::temp_file::AsTempFile;
 use weblib::state::{Bean, BeanContext};
 use weblib::{debug, route, router_config};
 
