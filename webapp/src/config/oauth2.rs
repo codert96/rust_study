@@ -4,19 +4,21 @@ use oauth2::basic::{
     BasicClient, BasicErrorResponse, BasicErrorResponseType, BasicRevocationErrorResponse,
     BasicTokenIntrospectionResponse, BasicTokenResponse,
 };
+use oauth2::reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
 use oauth2::{
     AccessToken, AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken,
     DeviceAuthorizationUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, PkceCodeChallenge,
     PkceCodeVerifier, RedirectUrl, RefreshToken, RevocationUrl, Scope, StandardErrorResponse,
     StandardRevocableToken, TokenResponse, TokenUrl,
 };
+use openidconnect::TokenResponse as OpenIdConnectResponse;
 use openidconnect::core::{
     CoreAuthDisplay, CoreAuthPrompt, CoreAuthenticationFlow, CoreClient, CoreGenderClaim,
     CoreJsonWebKey, CoreJweContentEncryptionAlgorithm, CoreProviderMetadata,
     CoreTokenIntrospectionResponse, CoreTokenResponse, CoreUserInfoClaims,
 };
-use openidconnect::TokenResponse as OpenIdConnectResponse;
 use openidconnect::{AccessTokenHash, EmptyAdditionalClaims, IssuerUrl, Nonce};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::error::Error;
 use std::ops::Deref;
@@ -285,7 +287,7 @@ impl OAuth2Login for LoginClient<OidcClientType, openidconnect::reqwest::Client>
 #[async_trait]
 impl OAuth2Login for LoginClient<OAuth2ClientType, oauth2::reqwest::Client> {
     type TokenResponseType = BasicTokenResponse;
-    type UserInfoType = ();
+    type UserInfoType = Value;
 
     async fn authorize_url(
         &self,
@@ -360,8 +362,18 @@ impl OAuth2Login for LoginClient<OAuth2ClientType, oauth2::reqwest::Client> {
 
     async fn userinfo(
         &self,
-        _access_token: &str,
+        access_token: &str,
     ) -> Result<Self::UserInfoType, Box<dyn Error + Send + Sync>> {
-        Err("Not implemented".into())
+        //随意实现一个
+        let response = self
+            .1
+            .get("https://api.github.com/user")
+            .header(AUTHORIZATION, format!("bearer {}", access_token))
+            .header(ACCEPT, "application/vnd.github.v3+json")
+            .header(USER_AGENT, "webapp/1.0")
+            .send()
+            .await?;
+        let json = response.text().await?;
+        serde_json::from_str::<Value>(&json).map_err(Into::into)
     }
 }
