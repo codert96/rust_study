@@ -1,8 +1,8 @@
 use axum::Json;
 use axum::body::Body;
-use axum::http::StatusCode;
 use axum::http::header::CONTENT_TYPE;
-use axum::response::{IntoResponse, Response};
+use axum::http::{HeaderName, HeaderValue, StatusCode};
+use axum::response::{IntoResponse, Redirect, Response};
 use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
@@ -99,5 +99,23 @@ impl<T: Serialize> ToResponse for Vec<T> {
 impl<K: Serialize, V: Serialize> ToResponse for HashMap<K, V> {
     fn to_response(self) -> Response {
         Ok::<HashMap<K, V>, Box<dyn Error>>(self).to_response()
+    }
+}
+
+impl ToResponse for () {
+    fn to_response(self) -> Response {
+        StatusCode::NO_CONTENT.into_response()
+    }
+}
+
+impl ToResponse for (StatusCode, [(HeaderName, HeaderValue); 1]) {
+    fn to_response(self) -> Response<Body> {
+        self.into_response()
+    }
+}
+
+impl ToResponse for Redirect {
+    fn to_response(self) -> Response<Body> {
+        self.into_response()
     }
 }

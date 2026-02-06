@@ -23,18 +23,23 @@ tracing = { version = "0.1.44", features = ["default"] }
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 tracing-appender = { version = "0.2.4" }
 serde = { version = "1.0.228", features = ["default"] }
-serde_json = { version = "1.0.149", features = ["default"] }
+serde_json = { version = "1.0.149", features = ["default", "indexmap"] }
 
 mime_guess = "2.0.5"
 percent-encoding = "2.3.2"
 
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "runtime-tokio-native-tls", "macros"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "runtime-tokio-rustls", "macros"] }
 sqlx-mysql = { version = "0.8.6" }
 dotenvy = "0.15.7"
 
 indexmap = "2.13.0"
 redis = { version = "1.0.2", features = ["tokio-comp", "tokio-rustls-comp", "connection-manager", "aio", "cache-aio", "default"] }
 sea-orm = { version = "1.1.19", features = ["sqlx", "sqlx-mysql", "default", "runtime-tokio-rustls", "macros"] }
-calamine = { version = "0.32.0", features = ["default", "dates"] }
+calamine = { version = "0.33.0", features = ["default", "dates"] }
 chrono = { version = "0.4.43", features = ["default"] }
 uuid = { version = "1.20.0", features = ["v4"] }
+openidconnect = { version = "4.0.1", features = ["default", "reqwest", "rustls-tls"] }
+oauth2 = { version = "5.0.0", features = ["default", "rustls-tls", "reqwest"] }
+async-trait = {version = "0.1.89"}
+
+reqwest = { version = "0.13.1", features = ["default", "multipart", "stream", "json", "rustls"] }

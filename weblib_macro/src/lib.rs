@@ -26,7 +26,7 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item_fn = syn::parse_macro_input!(item as syn::ItemFn);
 
     let mut inputs = item_fn.sig.inputs.clone();
-    let parms: Vec<_> = inputs
+    let params: Vec<_> = inputs
         .iter_mut()
         .filter_map(|arg| match arg {
             syn::FnArg::Typed(syn::PatType { pat, .. }) => {
@@ -59,7 +59,7 @@ pub fn route(attr: TokenStream, item: TokenStream) -> TokenStream {
             #path,
             async |#inputs| {
                 use weblib::result::ToResponse;
-                #fn_name(#(#parms),*).await.to_response()
+                #fn_name(#(#params),*).await.to_response()
             }
         );
     }

@@ -1,6 +1,7 @@
 use axum::response::Response;
 use std::any::TypeId;
 use std::env;
+use std::error::Error;
 use std::pin::Pin;
 use tokio::signal;
 use tracing_subscriber::EnvFilter;
@@ -9,8 +10,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use crate::result::ToResponse;
 use crate::routing::router;
-use crate::state::BeanFactoryBuilder;
-use axum::body::to_bytes;
+use crate::state::{BeanContext, BeanFactoryBuilder};
 use axum::{http, middleware};
 pub use inventory;
 use tokio::sync::broadcast;
@@ -25,7 +25,7 @@ pub mod result;
 pub mod routing;
 pub mod state;
 
-pub type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
+pub type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
 async fn shutdown_signal() {
     let ctrl_c = async {
@@ -80,9 +80,7 @@ pub async fn serve() -> Result {
         // 层面 2：输出到文件（不带颜色，利于检索）
         .with(file_layer)
         .init();
-    let bean_factory_builder: BeanFactoryBuilder = Default::default();
-    init(bean_factory_builder.clone()).await?;
-    let bean_context = bean_factory_builder.build().await;
+    let bean_context = init_context().await?;
 
     let router = router(&bean_context)
         .await
@@ -95,24 +93,6 @@ pub async fn serve() -> Result {
                 next.run(request).await
             },
         ))
-        .route_layer(middleware::map_response(async |response: Response| {
-            let status = response.status();
-            if !status.is_success() {
-                let (_, body) = response.into_parts();
-                let message = to_bytes(body, 1024 * 1024)
-                    .await
-                    .map(|body| String::from_utf8_lossy(&body).to_string())
-                    .unwrap_or_else(|_| status.to_string());
-                let message = if message.is_empty() {
-                    status.to_string()
-                } else {
-                    message
-                };
-                ToResponse::to_response((status, message))
-            } else {
-                response
-            }
-        }))
         .fallback(async || ToResponse::to_response((http::StatusCode::NOT_FOUND, "NOT_FOUND")))
         .with_state(bean_context);
 
@@ -137,7 +117,8 @@ type InitHookInner = fn(
 pub struct InitHook(pub InitHookInner);
 
 inventory::collect!(InitHook);
-async fn init(config: BeanFactoryBuilder) -> Result {
+async fn init_context() -> Result<BeanContext> {
+    let config: BeanFactoryBuilder = Default::default();
     let (tx, _) = broadcast::channel(16);
     let tasks: Vec<_> = inventory::iter::<InitHook>
         .into_iter()
@@ -147,9 +128,12 @@ async fn init(config: BeanFactoryBuilder) -> Result {
             init.0(config.clone(), (tx, rx))
         })
         .collect();
-    let result = futures::future::try_join_all(tasks).await.map(|_| ());
+    let result = futures::future::try_join_all(tasks).await;
     drop(tx);
-    result
+    match result {
+        Ok(_) => Ok(config.build().await),
+        Err(err) => Err(err),
+    }
 }
 
 #[macro_export]

@@ -16,3 +16,8 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 redis = { workspace = true }
 calamine = { workspace = true }
+
+openidconnect = { workspace = true }
+oauth2 = { workspace = true }
+reqwest = { workspace = true }
+async-trait = {workspace = true}

@@ -1,11 +1,14 @@
+use crate::result::ToResponse;
 use axum::extract::{FromRef, FromRequestParts};
 use axum::http::StatusCode;
 use axum::http::request::Parts;
+use axum::response::Response;
 use indexmap::IndexMap;
 use std::any::{Any, TypeId};
 use std::ops::{Deref, DerefMut};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
 #[derive(Debug, Clone)]
 pub struct Bean<T>(Arc<T>);
 impl<T> Deref for Bean<T> {
@@ -80,12 +83,14 @@ impl<T> FromRequestParts<BeanContext> for Bean<T>
 where
     T: Send + Sync + 'static,
 {
-    type Rejection = StatusCode;
+    type Rejection = Response;
 
     async fn from_request_parts(
         _: &mut Parts,
         state: &BeanContext,
     ) -> Result<Self, Self::Rejection> {
-        state.get().ok_or(StatusCode::INTERNAL_SERVER_ERROR)
+        state
+            .get()
+            .ok_or_else(|| (StatusCode::INTERNAL_SERVER_ERROR, "缺少必要的Bean").to_response())
     }
 }
