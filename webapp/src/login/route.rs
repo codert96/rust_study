@@ -1,9 +1,8 @@
-use crate::config::{LoginClientManager, LoginClientSource, OAuth2Login};
+use crate::config::{LoginClientManager, LoginClientSource, OAuth2Login, RedisPool};
 use axum::body::Body;
 use axum::extract::{Path, Query};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use redis::aio::ConnectionManager;
 use serde::Deserialize;
 use serde_json::json;
 use std::ops::Deref;
@@ -22,7 +21,7 @@ pub struct OAuth2CodeParams {
 pub async fn oauth2_authorize(
     Path(login_type): Path<String>,
     client: Bean<LoginClientManager>,
-    redis: Bean<ConnectionManager>,
+    redis: Bean<RedisPool>,
 ) -> Response<Body> {
     let login = client.get(&login_type);
     if let Some(login) = login {
@@ -60,7 +59,7 @@ pub async fn oauth2_authorize(
 pub async fn oauth2_token(
     params: Query<OAuth2CodeParams>,
     client: Bean<LoginClientManager>,
-    redis: Bean<ConnectionManager>,
+    redis: Bean<RedisPool>,
 ) -> Response {
     if let Some(client) = client.get(&params.login_type) {
         let mut redis = redis.deref().clone();
@@ -99,11 +98,35 @@ fn csrf_redis_key(csrf: &str) -> String {
     format!("oauth2:csrf:{}", csrf)
 }
 
-#[route(GET, "/oauth2/user")]
+#[route(GET, "/oauth2/user/{login_type}")]
 pub async fn oauth2_user(
+    Path(login_type): Path<String>,
     client: Bean<LoginClientManager>,
     headers: HeaderMap,
 ) -> Response {
+    let authorization = headers.get(header::AUTHORIZATION);
+    if authorization.is_none() {
+        return (StatusCode::UNAUTHORIZED, "未登录").to_response();
+    }
+    let bytes = authorization.unwrap().as_bytes();
+    let token_header = String::from_utf8_lossy(bytes);
+    let token_header = token_header.split_once(" ");
+    if token_header.is_none() {
+        return (StatusCode::UNAUTHORIZED, "错误的请求头").to_response();
+    }
+    let (_token_type, token) = token_header.unwrap();
 
-    "".to_response()
+    if let Some(client) = client.get(&login_type) {
+        let userinfo = match client {
+            LoginClientSource::Google(client) => {
+                client.userinfo(token).await.map(|userinfo| json!(userinfo))
+            }
+            LoginClientSource::Github(client) => {
+                client.userinfo(token).await.map(|userinfo| json!(userinfo))
+            }
+        };
+        userinfo.to_response()
+    } else {
+        (StatusCode::UNAUTHORIZED, "错误的请求头").to_response()
+    }
 }

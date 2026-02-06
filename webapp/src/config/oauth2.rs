@@ -36,8 +36,8 @@ pub type OAuth2ClientType = Client<
 >;
 
 pub enum LoginClientSource {
-    Google(LoginClient<OidcClientType, openidconnect::reqwest::Client>),
-    Github(LoginClient<OAuth2ClientType, oauth2::reqwest::Client>),
+    Google(Box<LoginClient<OidcClientType, openidconnect::reqwest::Client>>),
+    Github(Box<LoginClient<OAuth2ClientType, oauth2::reqwest::Client>>),
 }
 
 pub struct LoginClientManager(HashMap<String, LoginClientSource>);
@@ -53,11 +53,11 @@ pub async fn login_client_manager() -> Result<LoginClientManager, Box<dyn Error>
     let mut map: HashMap<String, LoginClientSource> = HashMap::new();
     map.insert(
         "google".to_owned(),
-        LoginClientSource::Google(google_client().await?),
+        LoginClientSource::Google(google_client().await?.into()),
     );
     map.insert(
         "github".to_owned(),
-        LoginClientSource::Github(github_client().await?),
+        LoginClientSource::Github(github_client().await?.into()),
     );
     Ok(LoginClientManager(map))
 }
