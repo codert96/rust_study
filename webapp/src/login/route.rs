@@ -1,7 +1,7 @@
 use crate::config::{LoginClientManager, LoginClientSource, OAuth2Login, RedisPool};
 use axum::body::Body;
 use axum::extract::{Path, Query};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use serde_json::json;
@@ -26,8 +26,14 @@ pub async fn oauth2_authorize(
     let login = client.get(&login_type);
     if let Some(login) = login {
         let result = match login {
-            LoginClientSource::Google(client) => client.authorize_url(vec!["".to_string()]),
-            LoginClientSource::Github(client) => client.authorize_url(vec!["".to_string()]),
+            LoginClientSource::Google(client) => client.authorize_url(vec![
+                "openid".to_string(),
+                "email".to_string(),
+                "profile".to_string(),
+            ]),
+            LoginClientSource::Github(client) => {
+                client.authorize_url(vec!["read:user".to_string(), "user:email".to_string()])
+            }
         }
         .await;
         match result {
