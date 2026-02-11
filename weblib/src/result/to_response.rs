@@ -38,7 +38,7 @@ impl ToResponse for (StatusCode, &str) {
 
 impl ToResponse for (StatusCode, String) {
     fn to_response(self) -> Response {
-        (self.0, self.1.as_str()).to_response()
+        (self.0, self.1.as_ref()).to_response()
     }
 }
 
