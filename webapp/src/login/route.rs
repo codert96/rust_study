@@ -1,138 +1,88 @@
-use crate::config::{LoginClientManager, LoginClientSource, OAuth2Login, RedisPool};
-use axum::body::Body;
-use axum::extract::{Path, Query};
-use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::{IntoResponse, Response};
-use serde::Deserialize;
-use serde_json::json;
-use std::ops::Deref;
+use crate::config::*;
+use axum::http::StatusCode;
+use axum::response::Response;
+use serde_json::Value;
+use std::error::Error;
+use weblib::login::{IdentityVerifier, RevokeToken, TokenVerifier, UserInfo};
 use weblib::result::ToResponse;
 use weblib::route;
 use weblib::state::Bean;
 
-#[derive(Deserialize, Debug)]
-pub struct OAuth2CodeParams {
-    pub login_type: String,
-    pub code: String,
-    pub state: String,
+#[route(GET, "/github/oauth2/authorize")]
+async fn github(client: Bean<GithubClient>, request: axum::extract::Request) -> Response {
+    client.to_authorize(request).await
+}
+#[route(GET, "/google/oauth2/authorize")]
+async fn google(client: Bean<GoogleClient>, request: axum::extract::Request) -> Response {
+    client.to_authorize(request).await
 }
 
-#[route(GET, "/oauth2/authorize/{login_type}")]
-pub async fn oauth2_authorize(
-    Path(login_type): Path<String>,
-    client: Bean<LoginClientManager>,
-    redis: Bean<RedisPool>,
-) -> Response<Body> {
-    let login = client.get(&login_type);
-    if let Some(login) = login {
-        let result = match login {
-            LoginClientSource::Google(client) => client.authorize_url(vec![
-                "openid".to_string(),
-                "email".to_string(),
-                "profile".to_string(),
-            ]),
-            LoginClientSource::Github(client) => {
-                client.authorize_url(vec!["read:user".to_string(), "user:email".to_string()])
-            }
-        }
-        .await;
-        match result {
-            Ok((csrf_token, pkce_verifier, nonce, redirect)) => {
-                let mut redis = redis.deref().clone();
-                let redis_key = csrf_redis_key(&csrf_token);
-                let redis_result = redis::pipe()
-                    .atomic()
-                    .hset(&redis_key, "pkce_verifier", pkce_verifier)
-                    .hset(&redis_key, "nonce", nonce)
-                    .expire(&redis_key, 30)
-                    .query_async(&mut redis)
-                    .await
-                    .map(|_: (i64, i64, bool)| ())
-                    .map_err(|e| e.to_string());
-                match redis_result {
-                    Ok(_) => redirect.into_response(),
-                    Err(e) => (StatusCode::UNAUTHORIZED, e).to_response(),
-                }
-            }
-            Err(err) => (StatusCode::UNAUTHORIZED, err.to_string()).to_response(),
-        }
-    } else {
-        (StatusCode::UNAUTHORIZED, "不支持的登录类型").to_response()
-    }
+#[route(GET, "/google/oauth2/token")]
+async fn google_token(client: Bean<GoogleClient>, request: axum::extract::Request) -> Response {
+    client.exchange_code(request).await
 }
 
-#[route(GET, "/oauth2/token")]
-pub async fn oauth2_token(
-    params: Query<OAuth2CodeParams>,
-    client: Bean<LoginClientManager>,
-    redis: Bean<RedisPool>,
+#[route(GET, "/github/oauth2/token")]
+async fn github_token(client: Bean<GithubClient>, request: axum::extract::Request) -> Response {
+    client.exchange_code(request).await
+}
+
+#[route(GET, "/google/oauth2/revoke")]
+async fn google_revoke_token(
+    client: Bean<GoogleClient>,
+    request: axum::extract::Request,
 ) -> Response {
-    if let Some(client) = client.get(&params.login_type) {
-        let mut redis = redis.deref().clone();
-        let redis_key = csrf_redis_key(&params.state);
-
-        let redis_result: Result<(String, String), String> = redis::pipe()
-            .atomic()
-            .hget(&redis_key, "pkce_verifier")
-            .hget(&redis_key, "nonce")
-            .query_async(&mut redis)
-            .await
-            .map_err(|e| e.to_string());
-        let code = &params.code;
-        if redis_result.is_err() {
-            return (StatusCode::UNAUTHORIZED, redis_result.err().unwrap()).to_response();
-        }
-        let (pkce_verifier, nonce) = redis_result.unwrap();
-
-        match client {
-            LoginClientSource::Google(client) => client
-                .exchange_code(code.clone(), pkce_verifier, nonce)
-                .await
-                .map(|token| json!(token)),
-            LoginClientSource::Github(client) => client
-                .exchange_code(code.clone(), pkce_verifier, nonce)
-                .await
-                .map(|token| json!(token)),
-        }
-        .to_response()
-    } else {
-        (StatusCode::UNAUTHORIZED, "不支持的登录类型").to_response()
-    }
+    client.revoke_token(request).await
 }
 
-fn csrf_redis_key(csrf: &str) -> String {
-    format!("oauth2:csrf:{}", csrf)
-}
-
-#[route(GET, "/oauth2/user/{login_type}")]
-pub async fn oauth2_user(
-    Path(login_type): Path<String>,
-    client: Bean<LoginClientManager>,
-    headers: HeaderMap,
+#[route(GET, "/github/oauth2/revoke")]
+async fn github_revoke_token(
+    client: Bean<GithubClient>,
+    request: axum::extract::Request,
 ) -> Response {
-    let authorization = headers.get(header::AUTHORIZATION);
-    if authorization.is_none() {
-        return (StatusCode::UNAUTHORIZED, "未登录").to_response();
-    }
-    let bytes = authorization.unwrap().as_bytes();
-    let token_header = String::from_utf8_lossy(bytes);
-    let token_header = token_header.split_once(" ");
-    if token_header.is_none() {
-        return (StatusCode::UNAUTHORIZED, "错误的请求头").to_response();
-    }
-    let (_token_type, token) = token_header.unwrap();
+    client.revoke_token(request).await
+}
 
-    if let Some(client) = client.get(&login_type) {
-        let userinfo = match client {
-            LoginClientSource::Google(client) => {
-                client.userinfo(token).await.map(|userinfo| json!(userinfo))
-            }
-            LoginClientSource::Github(client) => {
-                client.userinfo(token).await.map(|userinfo| json!(userinfo))
-            }
-        };
-        userinfo.to_response()
-    } else {
-        (StatusCode::UNAUTHORIZED, "错误的请求头").to_response()
+#[route(GET, "/google/oauth2/userinfo")]
+async fn google_userinfo(client: Bean<GoogleClient>, request: axum::extract::Request) -> Response {
+    client.user_info(request).await
+}
+
+#[route(GET, "/github/oauth2/userinfo")]
+async fn github_userinfo(client: Bean<GithubClient>, request: axum::extract::Request) -> Response {
+    let result: Result<_, Box<dyn Error>> = async move {
+        let response = client
+            .http_client()
+            .get("https://api.github.com/user")
+            .header(reqwest::header::ACCEPT, "application/vnd.github.v3+json")
+            .header(
+                reqwest::header::AUTHORIZATION,
+                request
+                    .headers()
+                    .get(axum::http::header::AUTHORIZATION)
+                    .ok_or("missing authorization header")?,
+            )
+            .header(
+                reqwest::header::USER_AGENT,
+                request
+                    .headers()
+                    .get(axum::http::header::USER_AGENT)
+                    .ok_or("missing authorization header")?,
+            )
+            .send()
+            .await?;
+        let status = response.status().as_u16();
+        let json = response.text().await?;
+        let json: Value = serde_json::from_str(&json)?;
+        Ok((StatusCode::from_u16(status)?, json))
+    }
+    .await;
+    match result {
+        Ok(result) => {
+            let mut response = Some(result.1).to_response();
+            *response.status_mut() = result.0;
+            response
+        }
+        Err(err) => (StatusCode::UNAUTHORIZED, err.to_string()).to_response(),
     }
 }

@@ -23,4 +23,14 @@ percent-encoding = { workspace = true }
 
 dotenvy = { workspace = true }
 indexmap = { workspace = true }
-uuid = {workspace = true}
+uuid = { workspace = true }
+redis = { workspace = true, optional = true }
+
+openidconnect = { workspace = true, optional = true }
+oauth2 = { workspace = true, optional = true }
+
+async-trait = {workspace = true}
+[features]
+redis = ["dep:redis"]
+openidconnect = ["dep:openidconnect"]
+oauth2 = ["dep:oauth2"]

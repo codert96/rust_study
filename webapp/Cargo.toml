@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-weblib = { workspace = true }
+weblib = { workspace = true, features = ["oauth2", "redis", "openidconnect"] }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 axum = { workspace = true }
@@ -20,4 +20,4 @@ calamine = { workspace = true }
 openidconnect = { workspace = true }
 oauth2 = { workspace = true }
 reqwest = { workspace = true }
-async-trait = {workspace = true}
+async-trait = { workspace = true }

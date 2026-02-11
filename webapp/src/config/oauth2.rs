@@ -1,77 +1,34 @@
-use async_trait::async_trait;
-use axum::response::Redirect;
-use oauth2::basic::{
-    BasicClient, BasicErrorResponse, BasicErrorResponseType, BasicRevocationErrorResponse,
-    BasicTokenIntrospectionResponse, BasicTokenResponse,
-};
-use oauth2::reqwest::header::{ACCEPT, AUTHORIZATION, USER_AGENT};
+use oauth2::basic::BasicClient;
 use oauth2::{
-    AccessToken, AuthUrl, AuthorizationCode, Client, ClientId, ClientSecret, CsrfToken,
-    DeviceAuthorizationUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, RefreshToken, RevocationUrl, Scope, StandardErrorResponse,
-    StandardRevocableToken, TokenResponse, TokenUrl,
+    AuthUrl, ClientId, ClientSecret, DeviceAuthorizationUrl, EndpointMaybeSet, EndpointNotSet,
+    EndpointSet, RedirectUrl, RevocationUrl, TokenUrl,
 };
-use openidconnect::TokenResponse as OpenIdConnectResponse;
-use openidconnect::core::{
-    CoreAuthDisplay, CoreAuthPrompt, CoreAuthenticationFlow, CoreClient, CoreGenderClaim,
-    CoreJsonWebKey, CoreJweContentEncryptionAlgorithm, CoreProviderMetadata,
-    CoreTokenIntrospectionResponse, CoreTokenResponse, CoreUserInfoClaims,
-};
-use openidconnect::{AccessTokenHash, EmptyAdditionalClaims, IssuerUrl, Nonce};
-use serde_json::Value;
-use std::collections::HashMap;
+use openidconnect::IssuerUrl;
+use openidconnect::core::{CoreClient, CoreProviderMetadata};
 use std::error::Error;
 use std::ops::Deref;
 use weblib::bean;
+use weblib::login::Client as OAuthClient;
+use weblib::state::Bean;
 
-pub type OAuth2ClientType = Client<
-    BasicErrorResponse,
-    BasicTokenResponse,
-    BasicTokenIntrospectionResponse,
-    StandardRevocableToken,
-    BasicRevocationErrorResponse,
-    EndpointSet,
-    EndpointSet,
-    EndpointNotSet,
-    EndpointSet,
-    EndpointSet,
+pub type GithubClient = OAuthClient<
+    BasicClient<EndpointSet, EndpointSet, EndpointNotSet, EndpointSet, EndpointSet>,
+    oauth2::reqwest::Client,
+    redis::aio::ConnectionManager,
+    oauth2::Scope,
 >;
 
-pub enum LoginClientSource {
-    Google(Box<LoginClient<OidcClientType, openidconnect::reqwest::Client>>),
-    Github(Box<LoginClient<OAuth2ClientType, oauth2::reqwest::Client>>),
-}
-
-pub struct LoginClientManager(HashMap<String, LoginClientSource>);
-
-impl Deref for LoginClientManager {
-    type Target = HashMap<String, LoginClientSource>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-#[bean]
-pub async fn login_client_manager() -> Result<LoginClientManager, Box<dyn Error>> {
-    let mut map: HashMap<String, LoginClientSource> = HashMap::new();
-    map.insert(
-        "google".to_owned(),
-        LoginClientSource::Google(google_client().await?.into()),
-    );
-    map.insert(
-        "github".to_owned(),
-        LoginClientSource::Github(github_client().await?.into()),
-    );
-    Ok(LoginClientManager(map))
-}
-
-pub struct LoginClient<ClientType, HttpClient>(ClientType, HttpClient);
-async fn github_client()
--> Result<LoginClient<OAuth2ClientType, oauth2::reqwest::Client>, Box<dyn Error>> {
-    let client_id = "";
+#[bean(wait_for = redis::aio::ConnectionManager)]
+async fn github_client(
+    redis: Bean<redis::aio::ConnectionManager>,
+) -> Result<GithubClient, Box<dyn Error>> {
+    let http_client = oauth2::reqwest::Client::builder()
+        .redirect(oauth2::reqwest::redirect::Policy::none())
+        .proxy(oauth2::reqwest::Proxy::all("http://127.0.0.1:7897")?)
+        .build()?;
+    let client_id = std::env::var("GITHUB_CLIENT_ID")?;
     let client = BasicClient::new(ClientId::new(client_id.to_string()))
-        .set_client_secret(ClientSecret::new(
-            "".to_string(),
-        ))
+        .set_client_secret(ClientSecret::new(std::env::var("GITHUB_CLIENT_SECRET")?))
         .set_auth_uri(AuthUrl::new(
             "https://github.com/login/oauth/authorize".to_string(),
         )?)
@@ -87,37 +44,35 @@ async fn github_client()
         .set_device_authorization_url(DeviceAuthorizationUrl::new(
             "https://github.com/login/device/code".to_string(),
         )?);
-    Ok(LoginClient(
+    let redis = redis.deref().clone();
+    let client = OAuthClient::new(
         client,
-        oauth2::reqwest::Client::builder()
-            .redirect(oauth2::reqwest::redirect::Policy::none())
-            .proxy(oauth2::reqwest::Proxy::all("http://127.0.0.1:7897")?)
-            .build()?,
-    ))
+        http_client,
+        redis,
+        vec![
+            oauth2::Scope::new("read:user".to_string()),
+            oauth2::Scope::new("user:email".to_string()),
+        ],
+    );
+    Ok(client)
 }
-
-pub type OidcClientType = openidconnect::Client<
-    EmptyAdditionalClaims,
-    CoreAuthDisplay,
-    CoreGenderClaim,
-    CoreJweContentEncryptionAlgorithm,
-    CoreJsonWebKey,
-    CoreAuthPrompt,
-    StandardErrorResponse<BasicErrorResponseType>,
-    CoreTokenResponse,
-    CoreTokenIntrospectionResponse,
-    StandardRevocableToken,
-    BasicRevocationErrorResponse,
-    EndpointSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointSet,
-    EndpointMaybeSet,
-    EndpointMaybeSet,
+pub type GoogleClient = OAuthClient<
+    CoreClient<
+        EndpointSet,
+        EndpointNotSet,
+        EndpointNotSet,
+        EndpointSet,
+        EndpointMaybeSet,
+        EndpointMaybeSet,
+    >,
+    openidconnect::reqwest::Client,
+    redis::aio::ConnectionManager,
+    openidconnect::Scope,
 >;
-
-async fn google_client()
--> Result<LoginClient<OidcClientType, openidconnect::reqwest::Client>, Box<dyn Error>> {
+#[bean(wait_for = redis::aio::ConnectionManager)]
+async fn google_client(
+    redis: Bean<redis::aio::ConnectionManager>,
+) -> Result<GoogleClient, Box<dyn Error>> {
     let http_client = openidconnect::reqwest::Client::builder()
         .proxy(openidconnect::reqwest::Proxy::all("http://127.0.0.1:7897")?)
         .build()?;
@@ -128,12 +83,8 @@ async fn google_client()
     .await?;
     let client = CoreClient::from_provider_metadata(
         provider_metadata,
-        ClientId::new(
-            "".to_string(),
-        ),
-        Some(ClientSecret::new(
-            "".to_string(),
-        )),
+        ClientId::new(std::env::var("GOOGLE_CLIENT_ID")?),
+        Some(ClientSecret::new(std::env::var("GOOGLE_CLIENT_SECRET")?)),
     )
     .set_revocation_url(RevocationUrl::new(
         "https://oauth2.googleapis.com/revoke".to_string(),
@@ -141,239 +92,17 @@ async fn google_client()
     .set_redirect_uri(RedirectUrl::new(
         "http://127.0.0.1:8080/login/oauth2/code?login_type=google".to_string(),
     )?);
-    Ok(LoginClient(client, http_client))
-}
+    let redis = redis.deref().clone();
 
-#[async_trait]
-pub trait OAuth2Login {
-    type TokenResponseType;
-    type UserInfoType;
-
-    async fn authorize_url(
-        &self,
-        scopes: impl IntoIterator<Item = String> + Send + Sync,
-    ) -> Result<(String, String, String, Redirect), Box<dyn Error + Send + Sync>>;
-    async fn exchange_code(
-        &self,
-        code: String,
-        pkce_verifier: String,
-        nonce: String,
-    ) -> Result<Self::TokenResponseType, Box<dyn Error + Send + Sync>>;
-    async fn refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<Self::TokenResponseType, Box<dyn Error + Send + Sync>>;
-    async fn revoke_access_token(
-        &self,
-        access_token: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
-    async fn revoke_refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>>;
-
-    async fn userinfo(
-        &self,
-        access_token: &str,
-    ) -> Result<Self::UserInfoType, Box<dyn Error + Send + Sync>>;
-}
-#[async_trait]
-impl OAuth2Login for LoginClient<OidcClientType, openidconnect::reqwest::Client> {
-    type TokenResponseType = CoreTokenResponse;
-    type UserInfoType = CoreUserInfoClaims;
-    async fn authorize_url(
-        &self,
-        scopes: impl IntoIterator<Item = String> + Send + Sync,
-    ) -> Result<(String, String, String, Redirect), Box<dyn Error + Send + Sync>> {
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-        let scopes: Vec<Scope> = scopes.into_iter().map(Scope::new).collect();
-        let (auth_url, csrf_token, nonce) = self
-            .0
-            .authorize_url(
-                CoreAuthenticationFlow::AuthorizationCode,
-                CsrfToken::new_random,
-                Nonce::new_random,
-            )
-            .add_scopes(scopes)
-            .set_pkce_challenge(pkce_challenge)
-            .url();
-        Ok((
-            csrf_token.secret().to_string(),
-            pkce_verifier.secret().to_string(),
-            nonce.secret().to_string(),
-            Redirect::to(auth_url.as_ref()),
-        ))
-    }
-
-    async fn exchange_code(
-        &self,
-        code: String,
-        pkce_verifier: String,
-        nonce: String,
-    ) -> Result<Self::TokenResponseType, Box<dyn Error + Send + Sync>> {
-        let token_response = self
-            .0
-            .exchange_code(AuthorizationCode::new(code))?
-            .set_pkce_verifier(PkceCodeVerifier::new(pkce_verifier))
-            .request_async(&self.1)
-            .await?;
-        let id_token = token_response.id_token().ok_or("id_token not found")?;
-
-        let id_token_verifier = self.0.id_token_verifier();
-        let claims = id_token.claims(&id_token_verifier, &Nonce::new(nonce))?;
-        if let Some(expected_access_token_hash) = claims.access_token_hash() {
-            let actual_access_token_hash = AccessTokenHash::from_token(
-                token_response.access_token(),
-                id_token.signing_alg()?,
-                id_token.signing_key(&id_token_verifier)?,
-            )?;
-            if actual_access_token_hash != *expected_access_token_hash {
-                return Err("Invalid access token".into());
-            }
-        }
-        Ok(token_response)
-    }
-
-    async fn refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<Self::TokenResponseType, Box<dyn Error + Send + Sync>> {
-        let refresh_token = RefreshToken::new(refresh_token.to_string());
-        self.0
-            .exchange_refresh_token(&refresh_token)?
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn revoke_access_token(
-        &self,
-        access_token: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let access_token =
-            StandardRevocableToken::AccessToken(AccessToken::new(access_token.to_string()));
-        self.0
-            .revoke_token(access_token)?
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn revoke_refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        let refresh_token =
-            StandardRevocableToken::RefreshToken(RefreshToken::new(refresh_token.to_string()));
-        self.0
-            .revoke_token(refresh_token)?
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn userinfo(
-        &self,
-        access_token: &str,
-    ) -> Result<Self::UserInfoType, Box<dyn Error + Send + Sync>> {
-        self.0
-            .user_info(AccessToken::new(access_token.to_string()), None)?
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-}
-
-#[async_trait]
-impl OAuth2Login for LoginClient<OAuth2ClientType, oauth2::reqwest::Client> {
-    type TokenResponseType = BasicTokenResponse;
-    type UserInfoType = Value;
-
-    async fn authorize_url(
-        &self,
-        scopes: impl IntoIterator<Item = String> + Send + Sync,
-    ) -> Result<(String, String, String, Redirect), Box<dyn Error + Send + Sync>> {
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-        let scopes: Vec<Scope> = scopes.into_iter().map(Scope::new).collect();
-        let (auth_url, csrf_token) = self
-            .0
-            .authorize_url(CsrfToken::new_random)
-            .add_scopes(scopes)
-            .set_pkce_challenge(pkce_challenge)
-            .url();
-        Ok((
-            csrf_token.secret().to_string(),
-            pkce_verifier.secret().to_string(),
-            String::new(),
-            Redirect::to(auth_url.as_ref()),
-        ))
-    }
-
-    async fn exchange_code(
-        &self,
-        code: String,
-        pkce_verifier: String,
-        _nonce: String,
-    ) -> Result<Self::TokenResponseType, Box<dyn Error + Send + Sync>> {
-        self.0
-            .exchange_code(AuthorizationCode::new(code))
-            .set_pkce_verifier(PkceCodeVerifier::new(pkce_verifier))
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<Self::TokenResponseType, Box<dyn Error + Send + Sync>> {
-        self.0
-            .exchange_refresh_token(&RefreshToken::new(refresh_token.to_string()))
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn revoke_access_token(
-        &self,
-        access_token: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.0
-            .revoke_token(StandardRevocableToken::AccessToken(AccessToken::new(
-                access_token.to_string(),
-            )))?
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn revoke_refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<(), Box<dyn Error + Send + Sync>> {
-        self.0
-            .revoke_token(StandardRevocableToken::RefreshToken(RefreshToken::new(
-                refresh_token.to_string(),
-            )))?
-            .request_async(&self.1)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn userinfo(
-        &self,
-        access_token: &str,
-    ) -> Result<Self::UserInfoType, Box<dyn Error + Send + Sync>> {
-        //随意实现一个
-        let response = self
-            .1
-            .get("https://api.github.com/user")
-            .header(AUTHORIZATION, format!("bearer {}", access_token))
-            .header(ACCEPT, "application/vnd.github.v3+json")
-            .header(USER_AGENT, "webapp/1.0")
-            .send()
-            .await?;
-        let json = response.text().await?;
-        serde_json::from_str::<Value>(&json).map_err(Into::into)
-    }
+    let client = OAuthClient::new(
+        client,
+        http_client,
+        redis,
+        vec![
+            openidconnect::Scope::new("openid".to_string()),
+            openidconnect::Scope::new("email".to_string()),
+            openidconnect::Scope::new("profile".to_string()),
+        ],
+    );
+    Ok(client)
 }

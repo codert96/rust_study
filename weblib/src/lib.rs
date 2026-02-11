@@ -24,6 +24,7 @@ pub mod mime;
 pub mod result;
 pub mod routing;
 pub mod state;
+pub mod login;
 
 pub type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 
