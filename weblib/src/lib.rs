@@ -20,11 +20,11 @@ pub use tracing::{debug, error, info, warn};
 pub use weblib_macro::*;
 
 pub mod extract;
+pub mod login;
 pub mod mime;
 pub mod result;
 pub mod routing;
 pub mod state;
-pub mod login;
 
 pub type Result<T = ()> = std::result::Result<T, Box<dyn Error>>;
 

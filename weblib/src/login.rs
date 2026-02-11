@@ -35,7 +35,6 @@ impl<Type, HttpClient, CacheStore, Scope> Client<Type, HttpClient, CacheStore, S
     pub fn http_client(&self) -> &HttpClient {
         &self.http_client
     }
-
 }
 pub trait IdentityVerifier {
     fn to_authorize(&self, request: axum::extract::Request) -> impl Future<Output = Response>;

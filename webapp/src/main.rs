@@ -1,6 +1,6 @@
 mod config;
-mod user;
 mod login;
+mod user;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
